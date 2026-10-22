@@ -18,6 +18,10 @@ export default {
   }
   #hint.hidden { opacity:0; animation:none; }
   @keyframes pulse { 0%,100% { opacity:0.95; } 50% { opacity:0.45; } }
+  #vig {
+    position:fixed; inset:0; pointer-events:none; z-index:3;
+    background:radial-gradient(ellipse at 50% 55%, rgba(0,0,0,0) 58%, rgba(0,0,0,0.32) 100%);
+  }
   #foot {
     position:fixed; left:0; right:0; bottom:10px; text-align:center;
     color:#fff; font:11px/1.2 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
@@ -26,8 +30,9 @@ export default {
 </style>
 </head>
 <body>
-<audio id="bgm" loop preload="auto" src="https://raw.githubusercontent.com/yuno998/oyun-sitem/main/Remembrance%20(Official%20Music%20Video)(MP3_128K).mp3"></audio>
+<audio id="bgm" loop preload="auto" src="https://mp3tourl.com/audio/1792712233215-a17ca72f-e637-4f60-80e5-f24374ebe5ce.mp3"></audio>
 <div id="hint">Müziği başlatmak için dokun</div>
+<div id="vig"></div>
 <div id="foot">Site bakım molasında — biraz beklemeye ne dersin?</div>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script>
@@ -40,8 +45,46 @@ export default {
   function rand(a, b) { return a + Math.random() * (b - a); }
   function clamp01(x) { return Math.max(0, Math.min(1, x)); }
   function mat(c) { return new THREE.MeshLambertMaterial({ color: C(c) }); }
+  var pixCache = {};
+  function pixMat(c) {
+    if (pixCache[c]) return pixCache[c];
+    var cv = document.createElement("canvas");
+    cv.width = cv.height = 8;
+    var cx = cv.getContext("2d");
+    var base = new THREE.Color(c);
+    for (var py = 0; py < 8; py++) {
+      for (var px = 0; px < 8; px++) {
+        var k = 0.9 + Math.random() * 0.2;
+        var rr = Math.min(255, Math.round(base.r * 255 * k));
+        var gg = Math.min(255, Math.round(base.g * 255 * k));
+        var bb = Math.min(255, Math.round(base.b * 255 * k));
+        cx.fillStyle = "rgb(" + rr + "," + gg + "," + bb + ")";
+        cx.fillRect(px, py, 1, 1);
+      }
+    }
+    var tex = new THREE.CanvasTexture(cv);
+    tex.magFilter = THREE.NearestFilter;
+    tex.minFilter = THREE.NearestFilter;
+    tex.generateMipmaps = false;
+    tex.encoding = THREE.sRGBEncoding;
+    var m = new THREE.MeshLambertMaterial({ map: tex });
+    pixCache[c] = m;
+    return m;
+  }
+  function makeRainTex() {
+    var cv = document.createElement("canvas");
+    cv.width = 16; cv.height = 64;
+    var cx = cv.getContext("2d");
+    var gr = cx.createLinearGradient(0, 0, 0, 64);
+    gr.addColorStop(0, "rgba(255,255,255,0)");
+    gr.addColorStop(0.7, "rgba(255,255,255,0.9)");
+    gr.addColorStop(1, "rgba(255,255,255,0)");
+    cx.fillStyle = gr;
+    cx.fillRect(7, 0, 2, 64);
+    return new THREE.CanvasTexture(cv);
+  }
   function box(w, h, d, c, x, y, z, parent) {
-    var m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat(c));
+    var m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), pixMat(c));
     m.position.set(x, y, z);
     m.castShadow = true;
     m.receiveShadow = true;
@@ -65,8 +108,8 @@ export default {
   scene.fog = new THREE.Fog(C(0xb5dcf0), 25, 170);
 
   var camera = new THREE.PerspectiveCamera(62, window.innerWidth / window.innerHeight, 0.1, 1500);
-  camera.position.set(0, 1.2, 3.6);
-  camera.lookAt(0, 5, -30);
+  camera.position.set(1.1, 1.25, 3.5);
+  camera.lookAt(-3.5, 5, -22);
 
   // ---------- Gökyüzü kubbesi (gradyan) ----------
   var skyUniforms = {
@@ -137,7 +180,7 @@ export default {
   }
 
   (function buildGround() {
-    var geo = new THREE.PlaneGeometry(600, 600, 120, 120);
+    var geo = new THREE.PlaneGeometry(600, 600, 160, 160);
     var pos = geo.attributes.position;
     var colors = new Float32Array(pos.count * 3);
     var cA = C(0x3f7f35), cB = C(0x5aa645), tmp = new THREE.Color();
@@ -160,7 +203,7 @@ export default {
 
   // ---------- Çimen demetleri (instanced) ----------
   (function buildGrass() {
-    var TUFTS = 380, BLADES = 4, COUNT = TUFTS * BLADES;
+    var TUFTS = 800, BLADES = 5, COUNT = TUFTS * BLADES;
     var g = new THREE.ConeGeometry(0.06, 1, 4);
     g.translate(0, 0.5, 0);
     var im = new THREE.InstancedMesh(g, new THREE.MeshLambertMaterial({ color: 0xffffff }), COUNT);
@@ -169,7 +212,7 @@ export default {
     var idx = 0;
     for (var t = 0; t < TUFTS; t++) {
       var ang = Math.random() * Math.PI * 2;
-      var rad = 2.2 + Math.pow(Math.random(), 0.7) * 55;
+      var rad = 2.2 + Math.pow(Math.random(), 0.7) * 70;
       var cx = Math.cos(ang) * rad, cz = Math.sin(ang) * rad;
       for (var b = 0; b < BLADES; b++) {
         var x = cx + rand(-0.25, 0.25), z = cz + rand(-0.25, 0.25);
@@ -188,6 +231,36 @@ export default {
     scene.add(im);
   })();
 
+  // ---------- Çiçekler ----------
+  (function buildFlowers() {
+    var N = 220;
+    var stems = new THREE.InstancedMesh(new THREE.BoxGeometry(0.04, 0.4, 0.04), new THREE.MeshLambertMaterial({ color: C(0x3d8a35) }), N);
+    var heads = new THREE.InstancedMesh(new THREE.BoxGeometry(0.14, 0.14, 0.14), new THREE.MeshLambertMaterial({ color: 0xffffff }), N);
+    var pal = [0xe94b4b, 0xf5d142, 0xffffff, 0xf08cc0, 0x6a8cf0, 0xff9a3c].map(C);
+    var d = new THREE.Object3D();
+    for (var i = 0; i < N; i++) {
+      var ang = Math.random() * Math.PI * 2;
+      var rad = 3 + Math.pow(Math.random(), 0.8) * 45;
+      var x = Math.cos(ang) * rad, z = Math.sin(ang) * rad;
+      var y = heightAt(x, z), hh = rand(0.3, 0.5);
+      d.position.set(x, y + hh / 2, z);
+      d.rotation.set(0, rand(0, 6.28), 0);
+      d.scale.set(1, hh / 0.4, 1);
+      d.updateMatrix();
+      stems.setMatrixAt(i, d.matrix);
+      d.position.set(x, y + hh + 0.05, z);
+      d.scale.set(1, 1, 1);
+      d.updateMatrix();
+      heads.setMatrixAt(i, d.matrix);
+      heads.setColorAt(i, pal[Math.floor(Math.random() * pal.length)]);
+    }
+    stems.instanceMatrix.needsUpdate = true;
+    heads.instanceMatrix.needsUpdate = true;
+    if (heads.instanceColor) heads.instanceColor.needsUpdate = true;
+    scene.add(stems);
+    scene.add(heads);
+  })();
+
   // ---------- Ağaçlar ----------
   (function buildTrees() {
     var trunkMat = mat(0x6b4423);
@@ -203,7 +276,7 @@ export default {
       var n = 2 + Math.floor(Math.random() * 2);
       for (var k = 0; k < n; k++) {
         var r = rand(2.2, 3.4);
-        var leaf = new THREE.Mesh(new THREE.SphereGeometry(r, 10, 8), leafMats[Math.floor(Math.random() * leafMats.length)]);
+        var leaf = new THREE.Mesh(new THREE.SphereGeometry(r, 14, 10), leafMats[Math.floor(Math.random() * leafMats.length)]);
         leaf.position.set(rand(-0.8, 0.8), th + k * 1.5 + 0.5, rand(-0.8, 0.8));
         g.add(leaf);
       }
@@ -213,7 +286,10 @@ export default {
   })();
 
   // ---------- Bulutlar ----------
-  var cloudMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 1, fog: false });
+  var cloudShades = [1.0, 0.9, 0.78];
+  var cloudMats = cloudShades.map(function () {
+    return new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 1, fog: false });
+  });
   var clouds = [];
   (function buildClouds() {
     var N = 10;
@@ -221,7 +297,7 @@ export default {
       var g = new THREE.Group();
       var parts = 6 + Math.floor(Math.random() * 4);
       for (var k = 0; k < parts; k++) {
-        var m = new THREE.Mesh(new THREE.BoxGeometry(rand(6, 14), rand(2, 3.5), rand(5, 9)), cloudMat);
+        var m = new THREE.Mesh(new THREE.BoxGeometry(rand(6, 14), rand(2, 3.5), rand(5, 9)), cloudMats[k % 3]);
         m.position.set(k * 5 - parts * 2.5 + rand(-2, 2), rand(-0.8, 1.2), rand(-3, 3));
         g.add(m);
       }
@@ -419,12 +495,33 @@ export default {
   var rainGeo = new THREE.BufferGeometry();
   rainGeo.setAttribute("position", new THREE.BufferAttribute(rainPos, 3));
   var rainMat = new THREE.PointsMaterial({
-    color: 0xbfd6ff, size: 0.16, transparent: true, opacity: 0, depthWrite: false
+    color: 0xbfd6ff, size: 0.9, map: makeRainTex(), alphaTest: 0.01, transparent: true, opacity: 0, depthWrite: false
   });
   var rain = new THREE.Points(rainGeo, rainMat);
-  rain.frustumCulled = false;
+    rain.frustumCulled = false;
   rain.visible = false;
   scene.add(rain);
+
+  // ---------- Ateşböcekleri (geceleri) ----------
+  var FN = 70;
+  var ffBase = new Float32Array(FN * 3), ffPos = new Float32Array(FN * 3), ffPh = new Float32Array(FN);
+  for (var fi = 0; fi < FN; fi++) {
+    ffBase[fi * 3] = rand(-16, 16);
+    ffBase[fi * 3 + 1] = rand(0.4, 2.2);
+    ffBase[fi * 3 + 2] = rand(-16, 2);
+    ffPh[fi] = rand(0, 6.28);
+  }
+  ffPos.set(ffBase);
+  var ffGeo = new THREE.BufferGeometry();
+  ffGeo.setAttribute("position", new THREE.BufferAttribute(ffPos, 3));
+  var ffMat = new THREE.PointsMaterial({
+    color: 0xd8ff80, size: 0.45, map: makeGlow("rgba(255,255,210,1)", "rgba(190,255,90,0.5)"),
+    blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, opacity: 0, toneMapped: false
+  });
+  var fireflies = new THREE.Points(ffGeo, ffMat);
+  fireflies.frustumCulled = false;
+  fireflies.visible = false;
+  scene.add(fireflies);
 
   // ---------- Gün döngüsü verisi (9 faz) ----------
   function kf(sky, fog, amb, ambI, dir, dirI, stars, cloud, bright) {
@@ -472,6 +569,7 @@ export default {
         var cnt = 2 + Math.floor(Math.random() * 2);
         for (var i = 0; i < cnt; i++) flashSeq.push(now + i * 0.22 + Math.random() * 0.08);
         nextFlash = now + rand(2, 6) + cnt * 0.25;
+        thunder(rand(0.5, 2.2));
       }
     }
     while (flashSeq.length && now >= flashSeq[0]) {
@@ -479,6 +577,81 @@ export default {
       flashLevel = 1;
       lightning.position.set(rand(-40, 40), rand(30, 45), rand(-80, -30));
     }
+  }
+
+  // ---------- Ses efektleri (WebAudio, dışarıdan dosya yok) ----------
+  var actx = null, noiseBuf = null, rainGain = null, windGain = null, masterGain = null;
+  var audioEvs = ["click", "touchstart", "touchend", "pointerdown", "keydown"];
+
+  function initAudio() {
+    if (actx) { if (actx.state === "suspended") actx.resume(); return; }
+    var AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return;
+    try {
+      actx = new AC();
+      var len = actx.sampleRate * 3;
+      noiseBuf = actx.createBuffer(1, len, actx.sampleRate);
+      var d = noiseBuf.getChannelData(0), last = 0;
+      for (var i = 0; i < len; i++) {
+        var w = Math.random() * 2 - 1;
+        last = (last + 0.02 * w) / 1.02;
+        d[i] = w * 0.6 + last * 3.0;
+      }
+      var comp = actx.createDynamicsCompressor();
+      masterGain = actx.createGain();
+      masterGain.gain.value = 0.9;
+      masterGain.connect(comp);
+      comp.connect(actx.destination);
+
+      // yağmur: yüksek frekanslı gürültü
+      var rs = actx.createBufferSource();
+      rs.buffer = noiseBuf; rs.loop = true;
+      var hp = actx.createBiquadFilter(); hp.type = "highpass"; hp.frequency.value = 900;
+      var lp = actx.createBiquadFilter(); lp.type = "lowpass"; lp.frequency.value = 9000;
+      rainGain = actx.createGain(); rainGain.gain.value = 0;
+      rs.connect(hp); hp.connect(lp); lp.connect(rainGain); rainGain.connect(masterGain);
+      rs.start(0, 0.4);
+
+      // rüzgar / uğultu: alçak frekanslı gürültü
+      var ws = actx.createBufferSource();
+      ws.buffer = noiseBuf; ws.loop = true; ws.playbackRate.value = 0.6;
+      var wl = actx.createBiquadFilter(); wl.type = "lowpass"; wl.frequency.value = 450;
+      windGain = actx.createGain(); windGain.gain.value = 0;
+      ws.connect(wl); wl.connect(windGain); windGain.connect(masterGain);
+      ws.start(0, 1.3);
+    } catch (e) { actx = null; }
+  }
+
+  function unlockAudio() {
+    initAudio();
+    if (actx && actx.state === "running") {
+      audioEvs.forEach(function (e) { window.removeEventListener(e, unlockAudio); });
+    }
+  }
+  audioEvs.forEach(function (e) { window.addEventListener(e, unlockAudio, { passive: true }); });
+
+  function thunder(delay) {
+    if (!actx || actx.state !== "running" || !noiseBuf) return;
+    var t0 = actx.currentTime + delay;
+    var src = actx.createBufferSource();
+    src.buffer = noiseBuf; src.loop = true;
+    var lp = actx.createBiquadFilter(); lp.type = "lowpass";
+    lp.frequency.setValueAtTime(900, t0);
+    lp.frequency.exponentialRampToValueAtTime(70, t0 + 3.5);
+    var g = actx.createGain();
+    g.gain.setValueAtTime(0.0001, t0);
+    g.gain.exponentialRampToValueAtTime(1.8, t0 + 0.08);
+    g.gain.exponentialRampToValueAtTime(0.7, t0 + 0.9);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + 4.2);
+    src.connect(lp); lp.connect(g); g.connect(masterGain);
+    src.start(t0, Math.random() * 1.5);
+    src.stop(t0 + 4.4);
+  }
+
+  function updateAudio(t) {
+    if (!actx || !rainGain) return;
+    rainGain.gain.value = 0.16 * wLevel * (1 + 0.6 * stormLevel);
+    windGain.gain.value = (0.12 * wLevel + 0.3 * stormLevel) * (0.8 + 0.2 * Math.sin(t * 0.6));
   }
 
   // ---------- Animasyon döngüsü ----------
@@ -580,8 +753,11 @@ export default {
     starMat.opacity = starsV * clearV * (0.88 + 0.12 * Math.sin(t * 2.3));
 
     // bulutlar
-    cloudMat.color.copy(cCloud);
-    cloudMat.opacity = clearV;
+    for (var cmi = 0; cmi < cloudMats.length; cmi++) {
+      cloudMats[cmi].color.copy(cCloud).multiplyScalar(cloudShades[cmi]);
+      cloudMats[cmi].opacity = clearV;
+    }
+    
     var cv = clearV > 0.02;
     for (var ci = 0; ci < clouds.length; ci++) {
       var c = clouds[ci];
@@ -610,6 +786,22 @@ export default {
       rainGeo.attributes.position.needsUpdate = true;
     }
 
+    // ses + ateşböcekleri
+    updateAudio(t);
+    var ffA = Math.max(0, starsV - 0.25) * clearV;
+    fireflies.visible = ffA > 0.02;
+    if (fireflies.visible) {
+      ffMat.opacity = ffA * (0.75 + 0.25 * Math.sin(t * 3));
+      var fp = ffGeo.attributes.position.array;
+      for (var fk = 0; fk < FN; fk++) {
+        var q = fk * 3;
+        fp[q] = ffBase[q] + Math.sin(t * 0.6 + ffPh[fk]) * 0.8;
+        fp[q + 1] = ffBase[q + 1] + Math.sin(t * 0.9 + ffPh[fk] * 1.7) * 0.35;
+        fp[q + 2] = ffBase[q + 2] + Math.cos(t * 0.5 + ffPh[fk]) * 0.8;
+      }
+      ffGeo.attributes.position.needsUpdate = true;
+    }
+
     // Steve nefes + hafif kafa hareketi
     upper.position.y = Math.sin(t * 1.8) * 0.012;
     headPivot.rotation.x = 0.65 + Math.sin(t * 0.7) * 0.02;
@@ -621,8 +813,8 @@ export default {
     dogTail.rotation.y = Math.sin(t * 11) * 0.55;
 
     // kamera: çok hafif sallanma
-    camera.position.set(Math.sin(t * 0.35) * 0.04, 1.2 + Math.sin(t * 0.5) * 0.025, 3.6);
-    camera.lookAt(Math.sin(t * 0.2) * 0.6, 5 + Math.sin(t * 0.27) * 0.4, -30);
+    camera.position.set(1.1 + Math.sin(t * 0.35) * 0.04, 1.25 + Math.sin(t * 0.5) * 0.025, 3.5);
+    camera.lookAt(-3.5 + Math.sin(t * 0.2) * 0.6, 5 + Math.sin(t * 0.27) * 0.4, -22);
 
     renderer.render(scene, camera);
   }
@@ -645,23 +837,16 @@ export default {
   var bgm = document.getElementById("bgm");
   var hint = document.getElementById("hint");
   var started = false;
-
-  if (bgm) {
-    bgm.volume = 0.15;
-  }
-
+  bgm.volume = 0.15;
   var evs = ["click", "touchstart", "touchend", "pointerdown", "keydown"];
 
   function onStarted() {
     started = true;
-    if (hint) {
-      hint.classList.add("hidden");
-    }
+    hint.classList.add("hidden");
     evs.forEach(function (e) { window.removeEventListener(e, tryPlay); });
   }
-
   function tryPlay() {
-    if (started || !bgm) return;
+    if (started) return;
     var pr = bgm.play();
     if (pr && pr.then) {
       pr.then(onStarted).catch(function () {});
@@ -669,7 +854,6 @@ export default {
       onStarted();
     }
   }
-
   evs.forEach(function (e) { window.addEventListener(e, tryPlay, { passive: true }); });
   tryPlay();
 })();
