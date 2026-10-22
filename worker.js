@@ -645,16 +645,23 @@ export default {
   var bgm = document.getElementById("bgm");
   var hint = document.getElementById("hint");
   var started = false;
-  bgm.volume = 0.15;
+
+  if (bgm) {
+    bgm.volume = 0.15;
+  }
+
   var evs = ["click", "touchstart", "touchend", "pointerdown", "keydown"];
 
   function onStarted() {
     started = true;
-    hint.classList.add("hidden");
+    if (hint) {
+      hint.classList.add("hidden");
+    }
     evs.forEach(function (e) { window.removeEventListener(e, tryPlay); });
   }
+
   function tryPlay() {
-    if (started) return;
+    if (started || !bgm) return;
     var pr = bgm.play();
     if (pr && pr.then) {
       pr.then(onStarted).catch(function () {});
@@ -662,6 +669,7 @@ export default {
       onStarted();
     }
   }
+
   evs.forEach(function (e) { window.addEventListener(e, tryPlay, { passive: true }); });
   tryPlay();
 })();
