@@ -45,7 +45,7 @@ export default {
   function rand(a, b) { return a + Math.random() * (b - a); }
   function clamp01(x) { return Math.max(0, Math.min(1, x)); }
   function mat(c) { return new THREE.MeshLambertMaterial({ color: C(c) }); }
-  // rüzgar: ortak zaman ve şiddet uniform'ları
+  // Rüzgar: ortak zaman ve şiddet uniform'ları
   var windTime = { value: 0 }, windAmp = { value: 0.5 };
   function windify(m, key, chunk) {
     m.onBeforeCompile = function (sh) {
@@ -617,13 +617,13 @@ export default {
     kf(0x3a2a5a, 0x4a3866, 0x6a5a9a, 0.45, 0x8a70b0, 0.30, 0.5, 0x4a3a66, 0.25), // alacakaranlık
     kf(0x0a0e24, 0x0c1230, 0x2a3a6a, 0.45, 0x6688cc, 0.30, 1.0, 0x1a2238, 0.12)  // gece
   ];
-  var START_OFFSET = 18; // sabah fazında başla
+  var START_OFFSET = 18; // Sabah aşamasında başla
   var CYCLE = 60;
 
   var cSky = new THREE.Color(), cFog = new THREE.Color(), cAmb = new THREE.Color(), cDir = new THREE.Color(), cCloud = new THREE.Color();
   var grayTop = new THREE.Color(), grayFog = new THREE.Color(), grayAmb = C(0x8a909a), white = new THREE.Color(1, 1, 1);
 
-  // ---------- Hava durumu (gerçek saate bağlı: yeniden yüklemede sıfırlanmaz) ----------
+  // ---------- Hava durumu (gerçek saate bağlı; yeniden yüklemede sıfırlanmaz) ----------
   var weather = "clear";
   var wLevel = 0, stormLevel = 0;
   var flashSeq = [], nextFlash = 0, flashLevel = 0;
@@ -969,7 +969,7 @@ export default {
   var bgm = document.getElementById("bgm");
   var hint = document.getElementById("hint");
   var started = false;
-  bgm.volume = 0.15;
+  if (bgm) bgm.volume = 0.15;
   var evs = ["click", "touchstart", "touchend", "pointerdown", "keydown"];
 
   function onStarted() {
@@ -978,7 +978,7 @@ export default {
     evs.forEach(function (e) { window.removeEventListener(e, tryPlay); });
   }
   function tryPlay() {
-    if (started) return;
+    if (started || !bgm) return;
     var pr = bgm.play();
     if (pr && pr.then) {
       pr.then(onStarted).catch(function () {});
@@ -989,16 +989,16 @@ export default {
   evs.forEach(function (e) { window.addEventListener(e, tryPlay, { passive: true }); });
   tryPlay();
 
-  // sekme arka plana gidince müzik ve efektler durur, dönünce devam eder
+  // Sekme arka plana gittiğinde müzik ve efektler durur; geri dönünce devam eder.
   function silence() {
-    try { bgm.pause(); } catch (e) {}
+    try { if (bgm) bgm.pause(); } catch (e) {}
     if (actx && actx.state === "running") actx.suspend();
   }
   function unsilence() {
-    if (started) {
+    if (started && bgm) {
       var pr = bgm.play();
       if (pr && pr.catch) pr.catch(function () {});
-          }
+    }
     if (actx && actx.state === "suspended") actx.resume();
   }
   document.addEventListener("visibilitychange", function () {
