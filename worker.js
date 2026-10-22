@@ -45,6 +45,36 @@ export default {
   function rand(a, b) { return a + Math.random() * (b - a); }
   function clamp01(x) { return Math.max(0, Math.min(1, x)); }
   function mat(c) { return new THREE.MeshLambertMaterial({ color: C(c) }); }
+  // rüzgar: ortak zaman ve şiddet uniform'ları
+  var windTime = { value: 0 }, windAmp = { value: 0.5 };
+  function windify(m, key, chunk) {
+    m.onBeforeCompile = function (sh) {
+      sh.uniforms.uTime = windTime;
+      sh.uniforms.uWind = windAmp;
+      sh.vertexShader = "uniform float uTime;" + NL + "uniform float uWind;" + NL +
+        sh.vertexShader.replace("#include <begin_vertex>", "#include <begin_vertex>" + NL + chunk);
+    };
+    m.customProgramCacheKey = function () { return key; };
+  }
+  var grassChunk = [
+    "float hk = clamp(position.y, 0.0, 1.0);",
+    "vec2 ip = vec2(0.0);",
+    "#ifdef USE_INSTANCING",
+    "ip = instanceMatrix[3].xz;",
+    "#endif",
+    "float ph = ip.x * 0.35 + ip.y * 0.27;",
+    "float sw = sin(uTime * 1.8 + ph) + 0.5 * sin(uTime * 3.1 + ph * 1.9);",
+    "transformed.x += sw * uWind * hk * hk * 0.35;",
+    "transformed.z += cos(uTime * 1.5 + ph) * uWind * hk * hk * 0.2;"
+  ].join(NL);
+  var leafChunk = [
+    "vec3 ip3 = vec3(0.0);",
+    "#ifdef USE_INSTANCING",
+    "ip3 = instanceMatrix[3].xyz;",
+    "#endif",
+    "float ph = ip3.x * 0.7 + ip3.y * 0.9 + ip3.z * 0.5;",
+    "transformed += vec3(sin(uTime * 2.2 + ph), 0.5 * sin(uTime * 2.7 + ph * 1.3), cos(uTime * 1.9 + ph)) * uWind * 0.07;"
+  ].join(NL);
   var pixCache = {};
   function pixMat(c) {
     if (pixCache[c]) return pixCache[c];
@@ -201,24 +231,28 @@ export default {
     scene.add(m);
   })();
 
-  // ---------- Çimen demetleri (instanced) ----------
+  // ---------- Çimen (instanced, rüzgarla sallanır) ----------
   (function buildGrass() {
-    var TUFTS = 800, BLADES = 5, COUNT = TUFTS * BLADES;
-    var g = new THREE.ConeGeometry(0.06, 1, 4);
+    var TUFTS = 3400, BLADES = 5, COUNT = TUFTS * BLADES;
+    var g = new THREE.ConeGeometry(0.055, 1, 4, 1, true);
     g.translate(0, 0.5, 0);
-    var im = new THREE.InstancedMesh(g, new THREE.MeshLambertMaterial({ color: 0xffffff }), COUNT);
-    var palette = [0x2f7a2c, 0x3d8f35, 0x4aa03c, 0x58b248, 0x6bbf52, 0x2a6a28].map(C);
+    var gm = new THREE.MeshLambertMaterial({ color: 0xffffff, side: THREE.DoubleSide });
+    windify(gm, "grass", grassChunk);
+    var im = new THREE.InstancedMesh(g, gm, COUNT);
+    im.frustumCulled = false;
+    var palette = [0x2f7a2c, 0x3d8f35, 0x4aa03c, 0x58b248, 0x6bbf52, 0x2a6a28, 0x78c85a].map(C);
     var dummy = new THREE.Object3D();
     var idx = 0;
     for (var t = 0; t < TUFTS; t++) {
       var ang = Math.random() * Math.PI * 2;
-      var rad = 2.2 + Math.pow(Math.random(), 0.7) * 70;
+      var rad = 0.4 + Math.pow(Math.random(), 1.35) * 75;
+      var near = rad < 4.5;
       var cx = Math.cos(ang) * rad, cz = Math.sin(ang) * rad;
       for (var b = 0; b < BLADES; b++) {
         var x = cx + rand(-0.25, 0.25), z = cz + rand(-0.25, 0.25);
         dummy.position.set(x, heightAt(x, z) - 0.02, z);
         dummy.rotation.set(rand(-0.25, 0.25), rand(0, 6.28), rand(-0.25, 0.25));
-        var h = rand(0.3, 0.9);
+        var h = near ? rand(0.22, 0.5) : rand(0.35, 1.0);
         dummy.scale.set(rand(0.8, 1.4), h, rand(0.8, 1.4));
         dummy.updateMatrix();
         im.setMatrixAt(idx, dummy.matrix);
@@ -236,6 +270,8 @@ export default {
     var N = 220;
     var stems = new THREE.InstancedMesh(new THREE.BoxGeometry(0.04, 0.4, 0.04), new THREE.MeshLambertMaterial({ color: C(0x3d8a35) }), N);
     var heads = new THREE.InstancedMesh(new THREE.BoxGeometry(0.14, 0.14, 0.14), new THREE.MeshLambertMaterial({ color: 0xffffff }), N);
+    stems.frustumCulled = false;
+    heads.frustumCulled = false;
     var pal = [0xe94b4b, 0xf5d142, 0xffffff, 0xf08cc0, 0x6a8cf0, 0xff9a3c].map(C);
     var d = new THREE.Object3D();
     for (var i = 0; i < N; i++) {
@@ -261,10 +297,15 @@ export default {
     scene.add(heads);
   })();
 
-  // ---------- Ağaçlar ----------
+  // ---------- Ağaçlar (yaprak blokları, rüzgarla sallanır) ----------
+  var trees = [];
+  var leafMat = new THREE.MeshLambertMaterial({ color: 0xffffff });
+  windify(leafMat, "leaf", leafChunk);
   (function buildTrees() {
-    var trunkMat = mat(0x6b4423);
-    var leafMats = [mat(0x24602a), mat(0x1d5326), mat(0x2d6a2f)];
+    var trunkMat = pixMat(0x6b4423);
+    var coreMats = [mat(0x1f5a28), mat(0x1a4d22), mat(0x265e2a)];
+    var pal = [0x2f7a2c, 0x3b8f33, 0x4aa03c, 0x58b248, 0x2a6a28, 0x6bbf52].map(C);
+    var d = new THREE.Object3D();
     for (var i = 0; i < 20; i++) {
       var x = rand(-95, 95), z = rand(-115, -24);
       if (Math.abs(x) < 5 && z > -20) x += 12;
@@ -274,13 +315,35 @@ export default {
       trunk.position.y = th / 2;
       g.add(trunk);
       var n = 2 + Math.floor(Math.random() * 2);
+      var spheres = [];
       for (var k = 0; k < n; k++) {
         var r = rand(2.2, 3.4);
-        var leaf = new THREE.Mesh(new THREE.SphereGeometry(r, 14, 10), leafMats[Math.floor(Math.random() * leafMats.length)]);
-        leaf.position.set(rand(-0.8, 0.8), th + k * 1.5 + 0.5, rand(-0.8, 0.8));
-        g.add(leaf);
+        var sp = { x: rand(-0.8, 0.8), y: th + k * 1.5 + 0.5, z: rand(-0.8, 0.8), r: r };
+        spheres.push(sp);
+        var core = new THREE.Mesh(new THREE.SphereGeometry(r * 0.8, 14, 10), coreMats[Math.floor(Math.random() * coreMats.length)]);
+        core.position.set(sp.x, sp.y, sp.z);
+        g.add(core);
       }
+      var LEAVES = 120 * n;
+      var im = new THREE.InstancedMesh(new THREE.BoxGeometry(0.75, 0.75, 0.75), leafMat, LEAVES);
+      im.frustumCulled = false;
+      for (var j = 0; j < LEAVES; j++) {
+        var s2 = spheres[j % n];
+        var u = Math.random() * 2 - 1, a = Math.random() * Math.PI * 2;
+        var sq = Math.sqrt(1 - u * u), rr = s2.r * rand(0.85, 1.05);
+        d.position.set(s2.x + sq * Math.cos(a) * rr, s2.y + u * rr * 0.9, s2.z + sq * Math.sin(a) * rr);
+        d.rotation.set(rand(0, 3), rand(0, 3), rand(0, 3));
+        d.scale.setScalar(rand(0.7, 1.3));
+        d.updateMatrix();
+        im.setMatrixAt(j, d.matrix);
+        im.setColorAt(j, pal[Math.floor(Math.random() * pal.length)]);
+      }
+      im.instanceMatrix.needsUpdate = true;
+      if (im.instanceColor) im.instanceColor.needsUpdate = true;
+      g.add(im);
       g.position.set(x, heightAt(x, z), z);
+      g.userData.ph = rand(0, 6.28);
+      trees.push(g);
       scene.add(g);
     }
   })();
@@ -498,7 +561,7 @@ export default {
     color: 0xbfd6ff, size: 0.9, map: makeRainTex(), alphaTest: 0.01, transparent: true, opacity: 0, depthWrite: false
   });
   var rain = new THREE.Points(rainGeo, rainMat);
-    rain.frustumCulled = false;
+  rain.frustumCulled = false;
   rain.visible = false;
   scene.add(rain);
 
@@ -523,6 +586,22 @@ export default {
   fireflies.visible = false;
   scene.add(fireflies);
 
+  // ---------- Rüzgarda uçuşan yapraklar ----------
+  var LN = 40;
+  var lvPos = new Float32Array(LN * 3), lvVel = new Float32Array(LN);
+  for (var li = 0; li < LN; li++) {
+    lvPos[li * 3] = rand(-40, 40);
+    lvPos[li * 3 + 1] = rand(0.5, 14);
+    lvPos[li * 3 + 2] = rand(-45, 4);
+    lvVel[li] = rand(0.4, 1.0);
+  }
+  var lvGeo = new THREE.BufferGeometry();
+  lvGeo.setAttribute("position", new THREE.BufferAttribute(lvPos, 3));
+  var lvMat = new THREE.PointsMaterial({ color: C(0x8fc94a), size: 0.22, sizeAttenuation: true, transparent: true, depthWrite: false });
+  var leavesPts = new THREE.Points(lvGeo, lvMat);
+  leavesPts.frustumCulled = false;
+  scene.add(leavesPts);
+
   // ---------- Gün döngüsü verisi (9 faz) ----------
   function kf(sky, fog, amb, ambI, dir, dirI, stars, cloud, bright) {
     return { sky: C(sky), fog: C(fog), amb: C(amb), ambI: ambI, dir: C(dir), dirI: dirI, stars: stars, cloud: C(cloud), bright: bright };
@@ -544,25 +623,53 @@ export default {
   var cSky = new THREE.Color(), cFog = new THREE.Color(), cAmb = new THREE.Color(), cDir = new THREE.Color(), cCloud = new THREE.Color();
   var grayTop = new THREE.Color(), grayFog = new THREE.Color(), grayAmb = C(0x8a909a), white = new THREE.Color(1, 1, 1);
 
-  // ---------- Hava durumu ----------
+  // ---------- Hava durumu (gerçek saate bağlı: yeniden yüklemede sıfırlanmaz) ----------
   var weather = "clear";
-  var weatherEnd = 0;
-  var nextWeatherAt = rand(15, 35);
   var wLevel = 0, stormLevel = 0;
   var flashSeq = [], nextFlash = 0, flashLevel = 0;
+  var WX_BLOCK = 3600;
+  var wxBlock = -1, wxSegs = [];
+
+  function mulberry32(a) {
+    return function () {
+      a |= 0; a = (a + 0x6D2B79F5) | 0;
+      var t = Math.imul(a ^ (a >>> 15), 1 | a);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+  function buildWx(block) {
+    var rng = mulberry32((block * 2654435761) >>> 0);
+    wxSegs = [];
+    var tp = 0;
+    while (tp < WX_BLOCK) {
+      tp += 15 + rng() * 20;                       // 15-35 sn bekleme
+      var r = rng();
+      var type = r < 0.4 ? "rain" : (r < 0.6 ? "storm" : "clear");
+      if (type !== "clear") {
+        wxSegs.push({ s: tp, e: Math.min(tp + 50, WX_BLOCK), type: type });
+        tp += 50;
+      }
+    }
+    wxBlock = block;
+  }
+  function weatherNow() {
+    var ws = Date.now() / 1000;
+    var block = Math.floor(ws / WX_BLOCK);
+    if (block !== wxBlock) buildWx(block);
+    var off = ws - block * WX_BLOCK;
+    for (var i = 0; i < wxSegs.length; i++) {
+      if (off >= wxSegs[i].s && off < wxSegs[i].e) return wxSegs[i].type;
+    }
+    return "clear";
+  }
 
   function updateWeather(now) {
-    if (weather === "clear") {
-      if (now >= nextWeatherAt) {
-        var r = Math.random();
-        if (r < 0.4) { weather = "rain"; weatherEnd = now + 50; }
-        else if (r < 0.6) { weather = "storm"; weatherEnd = now + 50; nextFlash = now + rand(2, 6); }
-        else { nextWeatherAt = now + rand(15, 35); }
-      }
-    } else if (now >= weatherEnd) {
-      weather = "clear";
+    var w = weatherNow();
+    if (w !== weather) {
+      weather = w;
       flashSeq.length = 0;
-      nextWeatherAt = now + rand(15, 35);
+      if (w === "storm") nextFlash = now + rand(2, 6);
     }
     if (weather === "storm") {
       if (now >= nextFlash && flashSeq.length === 0) {
@@ -580,7 +687,7 @@ export default {
   }
 
   // ---------- Ses efektleri (WebAudio, dışarıdan dosya yok) ----------
-  var actx = null, noiseBuf = null, rainGain = null, windGain = null, masterGain = null;
+  var actx = null, noiseBuf = null, rainGain = null, windGain = null, masterGain = null, windLP = null;
   var audioEvs = ["click", "touchstart", "touchend", "pointerdown", "keydown"];
 
   function initAudio() {
@@ -606,8 +713,8 @@ export default {
       // yağmur: yüksek frekanslı gürültü
       var rs = actx.createBufferSource();
       rs.buffer = noiseBuf; rs.loop = true;
-      var hp = actx.createBiquadFilter(); hp.type = "highpass"; hp.frequency.value = 900;
-      var lp = actx.createBiquadFilter(); lp.type = "lowpass"; lp.frequency.value = 9000;
+      var hp = actx.createBiquadFilter(); hp.type = "highpass"; hp.frequency.value = 350;
+      var lp = actx.createBiquadFilter(); lp.type = "lowpass"; lp.frequency.value = 2600;
       rainGain = actx.createGain(); rainGain.gain.value = 0;
       rs.connect(hp); hp.connect(lp); lp.connect(rainGain); rainGain.connect(masterGain);
       rs.start(0, 0.4);
@@ -615,7 +722,7 @@ export default {
       // rüzgar / uğultu: alçak frekanslı gürültü
       var ws = actx.createBufferSource();
       ws.buffer = noiseBuf; ws.loop = true; ws.playbackRate.value = 0.6;
-      var wl = actx.createBiquadFilter(); wl.type = "lowpass"; wl.frequency.value = 450;
+      var wl = actx.createBiquadFilter(); wl.type = "lowpass"; wl.frequency.value = 450; windLP = wl;
       windGain = actx.createGain(); windGain.gain.value = 0;
       ws.connect(wl); wl.connect(windGain); windGain.connect(masterGain);
       ws.start(0, 1.3);
@@ -640,18 +747,19 @@ export default {
     lp.frequency.exponentialRampToValueAtTime(70, t0 + 3.5);
     var g = actx.createGain();
     g.gain.setValueAtTime(0.0001, t0);
-    g.gain.exponentialRampToValueAtTime(1.8, t0 + 0.08);
-    g.gain.exponentialRampToValueAtTime(0.7, t0 + 0.9);
+    g.gain.exponentialRampToValueAtTime(1.2, t0 + 0.08);
+    g.gain.exponentialRampToValueAtTime(0.5, t0 + 0.9);
     g.gain.exponentialRampToValueAtTime(0.0001, t0 + 4.2);
     src.connect(lp); lp.connect(g); g.connect(masterGain);
     src.start(t0, Math.random() * 1.5);
     src.stop(t0 + 4.4);
   }
 
-  function updateAudio(t) {
+  function updateAudio(t, ws) {
     if (!actx || !rainGain) return;
-    rainGain.gain.value = 0.16 * wLevel * (1 + 0.6 * stormLevel);
-    windGain.gain.value = (0.12 * wLevel + 0.3 * stormLevel) * (0.8 + 0.2 * Math.sin(t * 0.6));
+    rainGain.gain.value = 0.05 * wLevel * (1 + 0.5 * stormLevel);
+    windGain.gain.value = 0.02 + 0.035 * ws + 0.06 * stormLevel;
+    if (windLP) windLP.frequency.value = 300 + 300 * ws;
   }
 
   // ---------- Animasyon döngüsü ----------
@@ -678,9 +786,10 @@ export default {
     stormLevel += (sTarget - stormLevel) * k;
     flashLevel *= Math.exp(-dt * 14);
     if (flashLevel < 0.003) flashLevel = 0;
+    var windS = Math.max(0.1, 0.35 + 0.2 * Math.sin(t * 0.31) + 0.15 * Math.sin(t * 0.83 + 1) + 0.25 * wLevel + 0.9 * stormLevel);
 
     // faz interpolasyonu
-    var p = ((t + START_OFFSET) % CYCLE) / CYCLE;
+    var p = ((Date.now() / 1000) % CYCLE) / CYCLE;
     dayP = p;
     var pos = p * 9, i0 = Math.floor(pos) % 9, f = pos - Math.floor(pos);
     f = f * f * (3 - 2 * f);
@@ -762,7 +871,7 @@ export default {
     for (var ci = 0; ci < clouds.length; ci++) {
       var c = clouds[ci];
       c.visible = cv;
-      c.position.x += c.userData.speed * dt;
+      c.position.x += c.userData.speed * (0.6 + 0.6 * windS) * dt;
       if (c.position.x > 230) c.position.x = -230;
     }
 
@@ -771,7 +880,7 @@ export default {
     rain.visible = rainA > 0.02;
     if (rain.visible) {
       rainMat.opacity = 0.65 * rainA;
-      var wind = 3 + 4 * stormLevel;
+      var wind = 1.5 + 3 * windS;
       var arr = rainGeo.attributes.position.array;
       for (var r = 0; r < RN; r++) {
         var j = r * 3;
@@ -787,7 +896,27 @@ export default {
     }
 
     // ses + ateşböcekleri
-    updateAudio(t);
+    updateAudio(t, windS);
+    windTime.value = t;
+    windAmp.value = windS;
+    for (var tri = 0; tri < trees.length; tri++) {
+      var tr = trees[tri], tph = tr.userData.ph;
+      tr.rotation.z = Math.sin(t * 0.9 + tph) * 0.014 * windS;
+      tr.rotation.x = Math.cos(t * 0.7 + tph) * 0.008 * windS;
+    }
+    var lp3 = lvGeo.attributes.position.array;
+    for (var lk = 0; lk < LN; lk++) {
+      var lq = lk * 3;
+      lp3[lq] += (0.8 + windS * 2.2) * dt + Math.sin(t * 1.3 + lk) * 0.01;
+      lp3[lq + 1] -= lvVel[lk] * dt;
+      lp3[lq + 2] += Math.cos(t * 0.9 + lk) * 0.01;
+      if (lp3[lq + 1] < 0.05 || lp3[lq] > 45) {
+        lp3[lq] = rand(-40, 40);
+        lp3[lq + 1] = rand(9, 15);
+        lp3[lq + 2] = rand(-45, 4);
+      }
+    }
+    lvGeo.attributes.position.needsUpdate = true;
     var ffA = Math.max(0, starsV - 0.25) * clearV;
     fireflies.visible = ffA > 0.02;
     if (fireflies.visible) {
@@ -818,6 +947,9 @@ export default {
 
     renderer.render(scene, camera);
   }
+  updateWeather(0);
+  wLevel = weather === "clear" ? 0 : 1;
+  stormLevel = weather === "storm" ? 1 : 0;
   animate();
 
   // ---------- Resize ----------
@@ -856,6 +988,23 @@ export default {
   }
   evs.forEach(function (e) { window.addEventListener(e, tryPlay, { passive: true }); });
   tryPlay();
+
+  // sekme arka plana gidince müzik ve efektler durur, dönünce devam eder
+  function silence() {
+    try { bgm.pause(); } catch (e) {}
+    if (actx && actx.state === "running") actx.suspend();
+  }
+  function unsilence() {
+    if (started) {
+      var pr = bgm.play();
+      if (pr && pr.catch) pr.catch(function () {});
+          }
+    if (actx && actx.state === "suspended") actx.resume();
+  }
+  document.addEventListener("visibilitychange", function () {
+    if (document.hidden) silence(); else unsilence();
+  });
+  window.addEventListener("pagehide", silence);
 })();
 </script>
 </body>
