@@ -1,5 +1,10 @@
 export default {
-  async fetch(request) {
+  async fetch(request, env) {
+    const url = new URL(request.url);
+    if (url.pathname !== "/" && url.pathname !== "/index.html") {
+      if (env && env.ASSETS) return env.ASSETS.fetch(request);
+      return fetch(request);
+    }
     const html = `<!DOCTYPE html>
 <html lang="tr">
 <head>
@@ -59,7 +64,7 @@ export default {
 <audio id="bgm" loop preload="auto" src="https://mp3tourl.com/audio/1792712233215-a17ca72f-e637-4f60-80e5-f24374ebe5ce.mp3"></audio>
 <div id="hint" class="hidden">Şarkını duymak için dokun</div>
 <div id="vig"></div>
-<div id="foot">Site bakım molasında — biraz beklemeye ne dersin?</div>
+<div id="foot">Site molada, siteni boşver de biraz dinlenmeye ne dersin?</div>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script>
 (function () {
@@ -734,6 +739,7 @@ export default {
 
   var cSky = new THREE.Color(), cFog = new THREE.Color(), cAmb = new THREE.Color(), cDir = new THREE.Color(), cCloud = new THREE.Color();
   var grayTop = new THREE.Color(), grayFog = new THREE.Color(), grayAmb = C(0x8a909a), white = new THREE.Color(1, 1, 1);
+  var cGT = C(0x6d737c), cGTs = C(0xaab4be), cGF = C(0x8a9099), cGFs = C(0xc4ccd4), cMist = C(0xb9c0c6);
 
   // ---------- Hava durumu (gerçek saate bağlı: yeniden yüklemede sıfırlanmaz) ----------
   var weather = "clear";
@@ -894,6 +900,11 @@ export default {
     setTimeout(function () { if (el.parentNode) el.parentNode.removeChild(el); }, 1500);
   }
 
+  var barkFile = new Audio("hav.mp3");
+  barkFile.preload = "auto";
+  barkFile.volume = 0.85;
+  var barkFileFail = false;
+  barkFile.addEventListener("error", function () { barkFileFail = true; });
   var dogEcho = null;
   function ensureEcho() {
     if (dogEcho) return dogEcho;
@@ -988,11 +999,22 @@ export default {
       if (!actx || actx.state !== "running" || !noiseBuf) return;
       woof(actx.currentTime + 0.01, 1);
     }
-    if (actx && actx.state === "suspended") {
-      actx.resume().then(go).catch(function () {});
-    } else {
-      go();
+    function synth() {
+      if (actx && actx.state === "suspended") {
+        actx.resume().then(go).catch(function () {});
+      } else {
+        go();
+      }
     }
+    if (!barkFileFail) {
+      try {
+        barkFile.currentTime = 0;
+        var bp = barkFile.play();
+        if (bp && bp.catch) bp.catch(function () { synth(); });
+        return;
+      } catch (e) {}
+    }
+    synth();
   }
 
   var cvs = renderer.domElement;
@@ -1084,12 +1106,12 @@ export default {
 
     // hava etkisi: gri/koyu gökyüzü
     var dark = (1 - 0.45 * stormLevel) * (0.18 + 0.82 * bright);
-    grayTop.copy(C(0x6d737c)).lerp(C(0xaab4be), snowLevel).multiplyScalar(dark);
-    grayFog.copy(C(0x8a9099)).lerp(C(0xc4ccd4), snowLevel).multiplyScalar(dark);
+    grayTop.copy(cGT).lerp(cGTs, snowLevel).multiplyScalar(dark);
+    grayFog.copy(cGF).lerp(cGFs, snowLevel).multiplyScalar(dark);
     cSky.lerp(grayTop, wLevel);
     cFog.lerp(grayFog, wLevel);
     if (fogK > 0.001) {
-      tmpFog.copy(C(0xb9c0c6)).multiplyScalar(0.25 + 0.75 * bright);
+      tmpFog.copy(cMist).multiplyScalar(0.25 + 0.75 * bright);
       cSky.lerp(tmpFog, fogK * 0.85);
       cFog.lerp(tmpFog, fogK);
     }
@@ -1295,6 +1317,16 @@ export default {
   stormLevel = weather === "storm" ? 1 : 0;
   snowCover = snowLevel * 0.6;
   prevWeather = weather;
+
+  // Önceden ısıtma: yağmur, kar, güneş, ay vb. ilk kez görününce takılma olmasın
+  (function warmUp() {
+    var objs = [rain, snow, fireflies, sun, sunHalo, moon, moonHalo, rainbow, shootMesh];
+    var vis = objs.map(function (o) { return o.visible; });
+    objs.forEach(function (o) { o.visible = true; });
+    clouds.forEach(function (c) { c.visible = true; });
+    try { renderer.compile(scene, camera); renderer.render(scene, camera); } catch (e) {}
+    objs.forEach(function (o, i) { o.visible = vis[i]; });
+  })();
   animate();
 
   // ---------- Resize ----------
