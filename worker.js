@@ -22,6 +22,17 @@ export default {
     position:fixed; inset:0; pointer-events:none; z-index:3;
     background:radial-gradient(ellipse at 50% 55%, rgba(0,0,0,0) 58%, rgba(0,0,0,0.32) 100%);
   }
+  .fx {
+    position:fixed; z-index:6; pointer-events:none; transform:translate(-50%,0);
+    font:700 22px/1 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    color:#fff; text-shadow:0 2px 6px rgba(0,0,0,0.55);
+    animation:fxUp 1.1s ease-out forwards;
+  }
+  .fx.heart { color:#ff6f91; font-size:24px; animation-duration:1.4s; }
+  @keyframes fxUp {
+    from { opacity:1; transform:translate(-50%,0) scale(0.85); }
+    to { opacity:0; transform:translate(-50%,-70px) scale(1.2); }
+  }
   #foot {
     position:fixed; left:0; right:0; bottom:10px; text-align:center;
     color:#fff; font:11px/1.2 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
@@ -47,14 +58,45 @@ export default {
   function mat(c) { return new THREE.MeshLambertMaterial({ color: C(c) }); }
   // rüzgar: ortak zaman ve şiddet uniform'ları
   var windTime = { value: 0 }, windAmp = { value: 0.5 };
-  function windify(m, key, chunk) {
+  var snowU = { value: 0 };
+  function windify(m, key, chunk, snowK) {
     m.onBeforeCompile = function (sh) {
       sh.uniforms.uTime = windTime;
       sh.uniforms.uWind = windAmp;
+      sh.uniforms.uSnow = snowU;
       sh.vertexShader = "uniform float uTime;" + NL + "uniform float uWind;" + NL +
         sh.vertexShader.replace("#include <begin_vertex>", "#include <begin_vertex>" + NL + chunk);
+      if (snowK) {
+        sh.fragmentShader = "uniform float uSnow;" + NL +
+          sh.fragmentShader.replace("#include <color_fragment>", "#include <color_fragment>" + NL +
+            "diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.82, 0.88, 0.95), uSnow * " + snowK.toFixed(2) + ");");
+      }
     };
     m.customProgramCacheKey = function () { return key; };
+  }
+
+  // gerçek çimen yaprağı: ucu sivrilen, hafif eğik, tabanı koyu
+  function makeBladeGeo() {
+    var segs = 4, hw = 0.045, pos = [], col = [], idx = [];
+    for (var i = 0; i < segs; i++) {
+      var t = i / segs, w = hw * (1 - Math.pow(t, 1.6)), cvz = 0.3 * t * t, sh = 0.45 + 0.55 * t;
+      pos.push(-w, t, cvz, w, t, cvz);
+      col.push(sh, sh, sh, sh, sh, sh);
+    }
+    pos.push(0, 1, 0.3);
+    col.push(1, 1, 1);
+    for (var j = 0; j < segs - 1; j++) {
+      var a = j * 2;
+      idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2);
+    }
+    var last = (segs - 1) * 2;
+    idx.push(last, last + 1, segs * 2);
+    var g = new THREE.BufferGeometry();
+    g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+    g.setAttribute("color", new THREE.Float32BufferAttribute(col, 3));
+    g.setIndex(idx);
+    g.computeVertexNormals();
+    return g;
   }
   var grassChunk = [
     "float hk = clamp(position.y, 0.0, 1.0);",
@@ -226,21 +268,22 @@ export default {
     geo.setAttribute("color", new THREE.BufferAttribute(colors, 3));
     geo.rotateX(-Math.PI / 2);
     geo.computeVertexNormals();
-    var m = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ vertexColors: true }));
+    var gmat = new THREE.MeshLambertMaterial({ vertexColors: true });
+    windify(gmat, "ground", "", 0.95);
+    var m = new THREE.Mesh(geo, gmat);
     m.receiveShadow = true;
     scene.add(m);
   })();
 
   // ---------- Çimen (instanced, rüzgarla sallanır) ----------
   (function buildGrass() {
-    var TUFTS = 3400, BLADES = 5, COUNT = TUFTS * BLADES;
-    var g = new THREE.ConeGeometry(0.055, 1, 4, 1, true);
-    g.translate(0, 0.5, 0);
-    var gm = new THREE.MeshLambertMaterial({ color: 0xffffff, side: THREE.DoubleSide });
-    windify(gm, "grass", grassChunk);
+    var TUFTS = 4200, BLADES = 6, COUNT = TUFTS * BLADES;
+    var g = makeBladeGeo();
+    var gm = new THREE.MeshLambertMaterial({ color: 0xffffff, side: THREE.DoubleSide, vertexColors: true });
+    windify(gm, "grass", grassChunk, 0.85);
     var im = new THREE.InstancedMesh(g, gm, COUNT);
     im.frustumCulled = false;
-    var palette = [0x2f7a2c, 0x3d8f35, 0x4aa03c, 0x58b248, 0x6bbf52, 0x2a6a28, 0x78c85a].map(C);
+    var palette = [0x2f7a2c, 0x3d8f35, 0x4aa03c, 0x58b248, 0x6bbf52, 0x2a6a28, 0x78c85a, 0x8aa83a, 0x9bbd45, 0x356b2a].map(C);
     var dummy = new THREE.Object3D();
     var idx = 0;
     for (var t = 0; t < TUFTS; t++) {
@@ -300,7 +343,7 @@ export default {
   // ---------- Ağaçlar (yaprak blokları, rüzgarla sallanır) ----------
   var trees = [];
   var leafMat = new THREE.MeshLambertMaterial({ color: 0xffffff });
-  windify(leafMat, "leaf", leafChunk);
+  windify(leafMat, "leaf", leafChunk, 0.5);
   (function buildTrees() {
     var trunkMat = pixMat(0x6b4423);
     var coreMats = [mat(0x1f5a28), mat(0x1a4d22), mat(0x265e2a)];
@@ -602,6 +645,60 @@ export default {
   leavesPts.frustumCulled = false;
   scene.add(leavesPts);
 
+  // ---------- Kar taneleri ----------
+  var SNN = 2500;
+  var snPos = new Float32Array(SNN * 3), snVel = new Float32Array(SNN);
+  for (var si = 0; si < SNN; si++) {
+    snPos[si * 3] = (Math.random() - 0.5) * 70;
+    snPos[si * 3 + 1] = Math.random() * 38;
+    snPos[si * 3 + 2] = -55 + Math.random() * 65;
+    snVel[si] = 1.2 + Math.random() * 1.2;
+  }
+  var snGeo = new THREE.BufferGeometry();
+  snGeo.setAttribute("position", new THREE.BufferAttribute(snPos, 3));
+  var snowMat = new THREE.PointsMaterial({
+    color: 0xffffff, size: 0.18, map: makeGlow("rgba(255,255,255,1)", "rgba(255,255,255,0.55)"),
+    transparent: true, opacity: 0, depthWrite: false
+  });
+  var snow = new THREE.Points(snGeo, snowMat);
+  snow.frustumCulled = false;
+  snow.visible = false;
+  scene.add(snow);
+
+  // ---------- Gökkuşağı (yağmurdan sonra, gündüz) ----------
+  var rainbow = new THREE.Group();
+  var rbMats = [];
+  [0x8b2be2, 0x4b3fd1, 0x2f7bff, 0x32c24a, 0xffe033, 0xff8a1f, 0xff3b30].forEach(function (col, i) {
+    var m = new THREE.MeshBasicMaterial({ color: C(col), transparent: true, opacity: 0, depthWrite: false, fog: false, toneMapped: false, side: THREE.DoubleSide });
+    rbMats.push(m);
+    rainbow.add(new THREE.Mesh(new THREE.RingGeometry(34 + i * 1.5, 34 + (i + 1) * 1.5, 96, 1, 0, Math.PI), m));
+  });
+  rainbow.position.set(-6, -3, -150);
+  rainbow.visible = false;
+  scene.add(rainbow);
+  var rbTimer = 0;
+
+  // ---------- Kayan yıldız ----------
+  var shootTex = (function () {
+    var cv = document.createElement("canvas");
+    cv.width = 128; cv.height = 8;
+    var cx = cv.getContext("2d");
+    var gr = cx.createLinearGradient(0, 0, 128, 0);
+    gr.addColorStop(0, "rgba(255,255,255,0)");
+    gr.addColorStop(1, "rgba(255,255,255,1)");
+    cx.fillStyle = gr;
+    cx.fillRect(0, 2, 128, 4);
+    return new THREE.CanvasTexture(cv);
+  })();
+  var shootMat = new THREE.MeshBasicMaterial({
+    map: shootTex, transparent: true, opacity: 0, depthWrite: false, fog: false, toneMapped: false, blending: THREE.AdditiveBlending
+  });
+  var shootMesh = new THREE.Mesh(new THREE.PlaneGeometry(45, 1.6), shootMat);
+  shootMesh.visible = false;
+  scene.add(shootMesh);
+  var shoot = { active: false, age: 0, life: 0.9, vx: 0, vy: 0 };
+  var shootCool = rand(4, 9);
+
   // ---------- Gün döngüsü verisi (9 faz) ----------
   function kf(sky, fog, amb, ambI, dir, dirI, stars, cloud, bright) {
     return { sky: C(sky), fog: C(fog), amb: C(amb), ambI: ambI, dir: C(dir), dirI: dirI, stars: stars, cloud: C(cloud), bright: bright };
@@ -625,7 +722,7 @@ export default {
 
   // ---------- Hava durumu (gerçek saate bağlı: yeniden yüklemede sıfırlanmaz) ----------
   var weather = "clear";
-  var wLevel = 0, stormLevel = 0;
+  var wLevel = 0, stormLevel = 0, rainLevel = 0, snowLevel = 0, fogK = 0, snowCover = 0, prevWeather = "clear", tmpFog = new THREE.Color();
   var flashSeq = [], nextFlash = 0, flashLevel = 0;
   var WX_BLOCK = 3600;
   var wxBlock = -1, wxSegs = [];
@@ -645,7 +742,7 @@ export default {
     while (tp < WX_BLOCK) {
       tp += 15 + rng() * 20;                       // 15-35 sn bekleme
       var r = rng();
-      var type = r < 0.4 ? "rain" : (r < 0.6 ? "storm" : "clear");
+      var type = r < 0.30 ? "rain" : (r < 0.45 ? "storm" : (r < 0.60 ? "snow" : (r < 0.70 ? "fog" : "clear")));
       if (type !== "clear") {
         wxSegs.push({ s: tp, e: Math.min(tp + 50, WX_BLOCK), type: type });
         tp += 50;
@@ -757,10 +854,111 @@ export default {
 
   function updateAudio(t, ws) {
     if (!actx || !rainGain) return;
-    rainGain.gain.value = 0.05 * wLevel * (1 + 0.5 * stormLevel);
+    rainGain.gain.value = 0.016 * rainLevel * (1 + 0.5 * stormLevel);
     windGain.gain.value = 0.02 + 0.035 * ws + 0.06 * stormLevel;
     if (windLP) windLP.frequency.value = 300 + 300 * ws;
   }
+
+  // ---------- Köpek: tıkla havlasın, basılı tutup gezdir sevsin ----------
+  var barkStart = -100, petting = false, petLevel = 0, lastPetHit = 0, lastHeart = 0;
+  var dogHit = new THREE.Mesh(new THREE.BoxGeometry(1.0, 1.4, 1.7), new THREE.MeshBasicMaterial());
+  dogHit.visible = false;
+  dogHit.position.set(0, 0.7, 0);
+  dog.add(dogHit);
+
+  function spawnFx(text, cls) {
+    var v = new THREE.Vector3();
+    dogHead.getWorldPosition(v);
+    v.project(camera);
+    var el = document.createElement("div");
+    el.className = "fx" + (cls ? " " + cls : "");
+    el.textContent = text;
+    el.style.left = ((v.x * 0.5 + 0.5) * window.innerWidth + rand(-18, 18)) + "px";
+    el.style.top = ((-v.y * 0.5 + 0.5) * window.innerHeight - 30 + rand(-8, 8)) + "px";
+    document.body.appendChild(el);
+    setTimeout(function () { if (el.parentNode) el.parentNode.removeChild(el); }, 1500);
+  }
+
+  function woof(t0, vol) {
+    var o = actx.createOscillator();
+    o.type = "sawtooth";
+    o.frequency.setValueAtTime(400, t0);
+    o.frequency.exponentialRampToValueAtTime(170, t0 + 0.15);
+    var f = actx.createBiquadFilter();
+    f.type = "lowpass";
+    f.frequency.setValueAtTime(1800, t0);
+    f.frequency.exponentialRampToValueAtTime(600, t0 + 0.15);
+    var g = actx.createGain();
+    g.gain.setValueAtTime(0.0001, t0);
+    g.gain.exponentialRampToValueAtTime(0.32 * vol, t0 + 0.012);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.17);
+    o.connect(f); f.connect(g); g.connect(masterGain);
+    o.start(t0); o.stop(t0 + 0.2);
+    var n = actx.createBufferSource();
+    n.buffer = noiseBuf;
+    var nf = actx.createBiquadFilter();
+    nf.type = "bandpass"; nf.frequency.value = 1100; nf.Q.value = 0.8;
+    var ng = actx.createGain();
+    ng.gain.setValueAtTime(0.0001, t0);
+    ng.gain.exponentialRampToValueAtTime(0.12 * vol, t0 + 0.01);
+    ng.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.12);
+    n.connect(nf); nf.connect(ng); ng.connect(masterGain);
+    n.start(t0, Math.random()); n.stop(t0 + 0.15);
+  }
+
+  function bark() {
+    initAudio();
+    barkStart = clock.elapsedTime;
+    spawnFx(Math.random() < 0.5 ? "Hav!" : "Hav hav!", "");
+    function go() {
+      if (!actx || actx.state !== "running" || !noiseBuf) return;
+      var t0 = actx.currentTime + 0.01;
+      woof(t0, 1);
+      woof(t0 + 0.28, 0.85);
+    }
+    if (actx && actx.state === "suspended") {
+      actx.resume().then(go).catch(function () {});
+    } else {
+      go();
+    }
+  }
+
+  var cvs = renderer.domElement;
+  cvs.style.touchAction = "none";
+  var ray = new THREE.Raycaster(), ndc = new THREE.Vector2();
+  function hitDog(ev) {
+    var r = cvs.getBoundingClientRect();
+    ndc.set(((ev.clientX - r.left) / r.width) * 2 - 1, -((ev.clientY - r.top) / r.height) * 2 + 1);
+    ray.setFromCamera(ndc, camera);
+    return ray.intersectObject(dog, true).length > 0;
+  }
+  var press = null;
+  cvs.addEventListener("pointerdown", function (ev) {
+    initAudio();
+    if (hitDog(ev)) {
+      press = { x: ev.clientX, y: ev.clientY, t0: performance.now(), moved: 0 };
+      try { cvs.setPointerCapture(ev.pointerId); } catch (e) {}
+    }
+  });
+  cvs.addEventListener("pointermove", function (ev) {
+    if (press) {
+      var dx = ev.clientX - press.x, dy = ev.clientY - press.y;
+      press.x = ev.clientX; press.y = ev.clientY;
+      press.moved += Math.sqrt(dx * dx + dy * dy);
+      if (press.moved > 14 && hitDog(ev)) { petting = true; lastPetHit = performance.now(); }
+    } else {
+      cvs.style.cursor = hitDog(ev) ? "pointer" : "default";
+    }
+  });
+  function endPress() {
+    if (!press) return;
+    var dur = performance.now() - press.t0;
+    if (!petting && press.moved < 14 && dur < 500) bark();
+    press = null;
+    petting = false;
+  }
+  cvs.addEventListener("pointerup", endPress);
+  cvs.addEventListener("pointercancel", endPress);
 
   // ---------- Animasyon döngüsü ----------
   var clock = new THREE.Clock();
@@ -779,21 +977,21 @@ export default {
     var t = clock.elapsedTime;
 
     updateWeather(t);
-    var wTarget = weather === "clear" ? 0 : 1;
+    var rTarget = (weather === "rain" || weather === "storm") ? 1 : 0;
+    var nTarget = weather === "snow" ? 1 : 0;
+    var fgTarget = weather === "fog" ? 1 : 0;
+    var wTarget = (rTarget || nTarget) ? 1 : 0;
     var sTarget = weather === "storm" ? 1 : 0;
     var k = 1 - Math.exp(-dt * 0.7);
     wLevel += (wTarget - wLevel) * k;
     stormLevel += (sTarget - stormLevel) * k;
+    rainLevel += (rTarget - rainLevel) * k;
+    snowLevel += (nTarget - snowLevel) * k;
+    fogK += (fgTarget - fogK) * (1 - Math.exp(-dt * 0.5));
+    snowCover += (nTarget - snowCover) * (1 - Math.exp(-dt * (nTarget > snowCover ? 0.1 : 0.04)));
     flashLevel *= Math.exp(-dt * 14);
     if (flashLevel < 0.003) flashLevel = 0;
-    var windS = Math.max(0.1, 0.35 + 0.2 * Math.sin(t * 0.31) + 0.15 * Math.sin(t * 0.83 + 1) + 0.25 * wLevel + 0.9 * stormLevel);
-
-    // faz interpolasyonu
-    var p = ((Date.now() / 1000) % CYCLE) / CYCLE;
-    dayP = p;
-    var pos = p * 9, i0 = Math.floor(pos) % 9, f = pos - Math.floor(pos);
-    f = f * f * (3 - 2 * f);
-    var A = KF[i0], B = KF[(i0 + 1) % 9];
+    var windS = Math.max(    var A = KF[i0], B = KF[(i0 + 1) % 9];
     cSky.copy(A.sky).lerp(B.sky, f);
     cFog.copy(A.fog).lerp(B.fog, f);
     cAmb.copy(A.amb).lerp(B.amb, f);
@@ -806,10 +1004,15 @@ export default {
 
     // hava etkisi: gri/koyu gökyüzü
     var dark = (1 - 0.45 * stormLevel) * (0.18 + 0.82 * bright);
-    grayTop.copy(C(0x6d737c)).multiplyScalar(dark);
-    grayFog.copy(C(0x8a9099)).multiplyScalar(dark);
+    grayTop.copy(C(0x6d737c)).lerp(C(0xaab4be), snowLevel).multiplyScalar(dark);
+    grayFog.copy(C(0x8a9099)).lerp(C(0xc4ccd4), snowLevel).multiplyScalar(dark);
     cSky.lerp(grayTop, wLevel);
     cFog.lerp(grayFog, wLevel);
+    if (fogK > 0.001) {
+      tmpFog.copy(C(0xb9c0c6)).multiplyScalar(0.25 + 0.75 * bright);
+      cSky.lerp(tmpFog, fogK * 0.85);
+      cFog.lerp(tmpFog, fogK);
+    }
     cAmb.lerp(grayAmb, wLevel * 0.6);
     ambI *= (1 - 0.3 * wLevel);
     dirI *= (1 - 0.75 * wLevel);
@@ -822,7 +1025,8 @@ export default {
     skyUniforms.bottomColor.value.copy(cFog);
     scene.background.copy(cSky);
     scene.fog.color.copy(cFog);
-    scene.fog.far = 170 - 60 * wLevel;
+    scene.fog.far = 170 - 60 * wLevel - 120 * fogK;
+    scene.fog.near = 25 - 20 * fogK;
     ambient.color.copy(cAmb);
     ambient.intensity = ambI;
     dirLight.color.copy(cDir);
@@ -848,12 +1052,43 @@ export default {
         moon.visible = moonHalo.visible = false;
       }
     }
-    var clearV = 1 - wLevel;
+    var clearV = (1 - wLevel) * (1 - 0.85 * fogK);
     if (clearV < 0.02) { sun.visible = sunHalo.visible = moon.visible = moonHalo.visible = false; }
     sunMat.opacity = clearV;
     sunHaloMat.opacity = clearV * 0.9;
     moonMat.opacity = clearV;
     moonHaloMat.opacity = clearV * 0.8;
+
+    // gökkuşağı: yağmurdan sonra, gündüz
+    if ((prevWeather === "rain" || prevWeather === "storm") && weather !== prevWeather && sunUp) rbTimer = 40;
+    prevWeather = weather;
+    if (rbTimer > 0) rbTimer -= dt;
+    var rbA = rbTimer > 0 ? Math.sin(Math.PI * clamp01(1 - rbTimer / 40)) * 0.6 : 0;
+    rbA *= clamp01(1 - wLevel) * (sunUp ? 1 : 0);
+    rainbow.visible = rbA > 0.02;
+    if (rainbow.visible) {
+      for (var rbi = 0; rbi < rbMats.length; rbi++) rbMats[rbi].opacity = rbA;
+    }
+
+    // kayan yıldız: gece, açık havada
+    shootCool -= dt;
+    if (!shoot.active && shootCool <= 0 && starsV > 0.6 && clearV > 0.8) {
+      var dirS = Math.random() < 0.5 ? 1 : -1;
+      shoot.active = true; shoot.age = 0;
+      shoot.vx = dirS * rand(150, 260);
+      shoot.vy = -rand(60, 110);
+      shootMesh.position.set(rand(-120, 160), rand(110, 230), -350);
+      shootMesh.rotation.z = Math.atan2(shoot.vy, shoot.vx);
+      shootMesh.visible = true;
+      shootCool = rand(5, 12);
+    }
+    if (shoot.active) {
+      shoot.age += dt;
+      shootMesh.position.x += shoot.vx * dt;
+      shootMesh.position.y += shoot.vy * dt;
+      shootMat.opacity = Math.sin(Math.PI * clamp01(shoot.age / shoot.life)) * 0.9;
+      if (shoot.age >= shoot.life) { shoot.active = false; shootMesh.visible = false; }
+    }
 
     // ışık yönü (okunabilirlik için hafif arkadan)
     dirLight.position.set(-Math.cos(lightA) * 30, Math.max(Math.sin(lightA) * 30, 6) + 6, 12);
@@ -876,7 +1111,7 @@ export default {
     }
 
     // yağmur
-    var rainA = wLevel;
+    var rainA = rainLevel;
     rain.visible = rainA > 0.02;
     if (rain.visible) {
       rainMat.opacity = 0.65 * rainA;
@@ -899,6 +1134,24 @@ export default {
     updateAudio(t, windS);
     windTime.value = t;
     windAmp.value = windS;
+    snowU.value = snowCover;
+    snow.visible = snowLevel > 0.02;
+    if (snow.visible) {
+      snowMat.opacity = 0.9 * snowLevel;
+      var sa = snGeo.attributes.position.array;
+      for (var sk = 0; sk < SNN; sk++) {
+        var sq2 = sk * 3;
+        sa[sq2 + 1] -= snVel[sk] * dt;
+        sa[sq2] += (0.6 + windS * 1.2) * dt + Math.sin(t * 0.8 + sk) * 0.006;
+        sa[sq2 + 2] += Math.cos(t * 0.7 + sk * 1.3) * 0.006;
+        if (sa[sq2 + 1] < 0) {
+          sa[sq2 + 1] = 38;
+          sa[sq2] = (Math.random() - 0.5) * 70;
+          sa[sq2 + 2] = -55 + Math.random() * 65;
+        }
+      }
+      snGeo.attributes.position.needsUpdate = true;
+    }
     for (var tri = 0; tri < trees.length; tri++) {
       var tr = trees[tri], tph = tr.userData.ph;
       tr.rotation.z = Math.sin(t * 0.9 + tph) * 0.014 * windS;
@@ -938,8 +1191,15 @@ export default {
     // Köpek: nefes + kuyruk sallama
     dogBody.position.y = 0.45 + Math.sin(t * 2.4 + 1) * 0.008;
     dogHead.position.y = 0.95 + Math.sin(t * 2.4 + 1) * 0.012;
-    dogHead.rotation.x = 0.7 + Math.sin(t * 0.9) * 0.03;
-    dogTail.rotation.y = Math.sin(t * 11) * 0.55;
+    if (petting && performance.now() - lastPetHit > 400) petting = false;
+    petLevel += ((petting ? 1 : 0) - petLevel) * (1 - Math.exp(-dt * 6));
+    if (petting && t - lastHeart > 0.3) { lastHeart = t; spawnFx("♥", "heart"); }
+    var bt = t - barkStart;
+    var barkE = Math.max(bt >= 0 ? Math.exp(-bt * 12) : 0, bt >= 0.28 ? Math.exp(-(bt - 0.28) * 12) : 0);
+    dog.position.y = barkE * 0.06;
+    dogHead.rotation.x = 0.7 + Math.sin(t * 0.9) * 0.03 + 0.3 * barkE - 0.12 * petLevel;
+    dogHead.rotation.z = Math.sin(t * 4) * 0.1 * petLevel;
+    dogTail.rotation.y = Math.sin(t * (11 + 16 * petLevel)) * (0.55 + 0.3 * petLevel);
 
     // kamera: çok hafif sallanma
     camera.position.set(1.1 + Math.sin(t * 0.35) * 0.04, 1.25 + Math.sin(t * 0.5) * 0.025, 3.5);
@@ -948,8 +1208,13 @@ export default {
     renderer.render(scene, camera);
   }
   updateWeather(0);
-  wLevel = weather === "clear" ? 0 : 1;
+  rainLevel = (weather === "rain" || weather === "storm") ? 1 : 0;
+  snowLevel = weather === "snow" ? 1 : 0;
+  fogK = weather === "fog" ? 1 : 0;
+  wLevel = (rainLevel || snowLevel) ? 1 : 0;
   stormLevel = weather === "storm" ? 1 : 0;
+  snowCover = snowLevel * 0.6;
+  prevWeather = weather;
   animate();
 
   // ---------- Resize ----------
@@ -998,7 +1263,7 @@ export default {
     }
   }
   function syncOnce() {
-      if (synced) return;
+    if (synced) return;
     if (bgm.readyState >= 1 && isFinite(bgm.duration)) { synced = true; syncPos(); }
   }
   function initialPlay() {
