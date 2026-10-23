@@ -991,7 +991,13 @@ export default {
     snowCover += (nTarget - snowCover) * (1 - Math.exp(-dt * (nTarget > snowCover ? 0.1 : 0.04)));
     flashLevel *= Math.exp(-dt * 14);
     if (flashLevel < 0.003) flashLevel = 0;
-    var windS = Math.max(    var A = KF[i0], B = KF[(i0 + 1) % 9];
+
+    // faz interpolasyonu
+    var p = ((Date.now() / 1000) % CYCLE) / CYCLE;
+    dayP = p;
+    var pos = p * 9, i0 = Math.floor(pos) % 9, f = pos - Math.floor(pos);
+    f = f * f * (3 - 2 * f);
+    var A = KF[i0], B = KF[(i0 + 1) % 9];
     cSky.copy(A.sky).lerp(B.sky, f);
     cFog.copy(A.fog).lerp(B.fog, f);
     cAmb.copy(A.amb).lerp(B.amb, f);
@@ -1001,6 +1007,7 @@ export default {
     var dirI = A.dirI + (B.dirI - A.dirI) * f;
     var starsV = A.stars + (B.stars - A.stars) * f;
     var bright = A.bright + (B.bright - A.bright) * f;
+    var windS = Math.max(0.1, 0.35 + 0.2 * Math.sin(t * 0.31) + 0.15 * Math.sin(t * 0.83 + 1) + 0.25 * wLevel + 0.9 * stormLevel);
 
     // hava etkisi: gri/koyu gökyüzü
     var dark = (1 - 0.45 * stormLevel) * (0.18 + 0.82 * bright);
