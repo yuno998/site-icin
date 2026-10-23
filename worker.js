@@ -29,6 +29,21 @@ export default {
     animation:fxUp 1.1s ease-out forwards;
   }
   .fx.heart { color:#ff6f91; font-size:24px; animation-duration:1.4s; }
+  .fx.bark { font-size:32px; letter-spacing:0.02em; animation:barkPop 0.9s ease-out forwards; }
+  .ring {
+    position:fixed; z-index:5; pointer-events:none; width:24px; height:24px; margin:-12px 0 0 -12px;
+    border:3px solid rgba(255,255,255,0.8); border-radius:50%;
+    animation:ringOut 0.7s ease-out forwards;
+  }
+  @keyframes barkPop {
+    0% { opacity:0; transform:translate(-50%,0) scale(0.3) rotate(-10deg); }
+    20% { opacity:1; transform:translate(-50%,-6px) scale(1.3) rotate(4deg); }
+    100% { opacity:0; transform:translate(-50%,-50px) scale(1) rotate(0deg); }
+  }
+  @keyframes ringOut {
+    from { opacity:0.9; transform:scale(0.3); }
+    to { opacity:0; transform:scale(5); }
+  }
   @keyframes fxUp {
     from { opacity:1; transform:translate(-50%,0) scale(0.85); }
     to { opacity:0; transform:translate(-50%,-70px) scale(1.2); }
@@ -44,7 +59,7 @@ export default {
 <audio id="bgm" loop preload="auto" src="https://mp3tourl.com/audio/1792712233215-a17ca72f-e637-4f60-80e5-f24374ebe5ce.mp3"></audio>
 <div id="hint" class="hidden">Şarkını duymak için dokun</div>
 <div id="vig"></div>
-<div id="foot">Site bakım molasında siteyi boşverde biraz dinlenmeye ne dersin?</div>
+<div id="foot">Site bakım molasında — biraz beklemeye ne dersin?</div>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script>
 (function () {
@@ -879,42 +894,99 @@ export default {
     setTimeout(function () { if (el.parentNode) el.parentNode.removeChild(el); }, 1500);
   }
 
+  var dogEcho = null;
+  function ensureEcho() {
+    if (dogEcho) return dogEcho;
+    var inG = actx.createGain();
+    var dl = actx.createDelay(1.0); dl.delayTime.value = 0.23;
+    var fb = actx.createGain(); fb.gain.value = 0.3;
+    var lp = actx.createBiquadFilter(); lp.type = "lowpass"; lp.frequency.value = 1800;
+    var wet = actx.createGain(); wet.gain.value = 0.35;
+    inG.connect(dl); dl.connect(lp); lp.connect(fb); fb.connect(dl);
+    lp.connect(wet); wet.connect(masterGain);
+    dogEcho = inG;
+    return inG;
+  }
+
+  // tek bir "Hav": gırtlak + iki ağız rezonansı + nefes + hafif yankı
   function woof(t0, vol) {
+    var echo = ensureEcho();
+    var env = actx.createGain();
+    env.gain.setValueAtTime(0.0001, t0);
+    env.gain.exponentialRampToValueAtTime(0.55 * vol, t0 + 0.012);
+    env.gain.exponentialRampToValueAtTime(0.25 * vol, t0 + 0.1);
+    env.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.28);
+    env.connect(masterGain);
+    env.connect(echo);
+
     var o = actx.createOscillator();
     o.type = "sawtooth";
-    o.frequency.setValueAtTime(400, t0);
-    o.frequency.exponentialRampToValueAtTime(170, t0 + 0.15);
-    var f = actx.createBiquadFilter();
-    f.type = "lowpass";
-    f.frequency.setValueAtTime(1800, t0);
-    f.frequency.exponentialRampToValueAtTime(600, t0 + 0.15);
-    var g = actx.createGain();
-    g.gain.setValueAtTime(0.0001, t0);
-    g.gain.exponentialRampToValueAtTime(0.32 * vol, t0 + 0.012);
-    g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.17);
-    o.connect(f); f.connect(g); g.connect(masterGain);
-    o.start(t0); o.stop(t0 + 0.2);
+    o.frequency.setValueAtTime(320, t0);
+    o.frequency.exponentialRampToValueAtTime(220, t0 + 0.06);
+    o.frequency.exponentialRampToValueAtTime(130, t0 + 0.26);
+    var f1 = actx.createBiquadFilter(); f1.type = "bandpass"; f1.Q.value = 3;
+    f1.frequency.setValueAtTime(520, t0);
+    f1.frequency.exponentialRampToValueAtTime(820, t0 + 0.07);
+    f1.frequency.exponentialRampToValueAtTime(600, t0 + 0.26);
+    var f2 = actx.createBiquadFilter(); f2.type = "bandpass"; f2.Q.value = 4;
+    f2.frequency.setValueAtTime(1100, t0);
+    f2.frequency.exponentialRampToValueAtTime(1500, t0 + 0.07);
+    f2.frequency.exponentialRampToValueAtTime(1150, t0 + 0.26);
+    var g1 = actx.createGain(); g1.gain.value = 1.6;
+    var g2 = actx.createGain(); g2.gain.value = 0.9;
+    o.connect(f1); f1.connect(g1); g1.connect(env);
+    o.connect(f2); f2.connect(g2); g2.connect(env);
+    o.start(t0); o.stop(t0 + 0.3);
+
+    // gövde: kısa alçak vuruş
+    var b = actx.createOscillator();
+    b.type = "sine";
+    b.frequency.setValueAtTime(130, t0);
+    b.frequency.exponentialRampToValueAtTime(70, t0 + 0.14);
+    var bg = actx.createGain();
+    bg.gain.setValueAtTime(0.0001, t0);
+    bg.gain.exponentialRampToValueAtTime(0.22 * vol, t0 + 0.01);
+    bg.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.16);
+    b.connect(bg); bg.connect(masterGain);
+    b.start(t0); b.stop(t0 + 0.2);
+
+    // nefes
     var n = actx.createBufferSource();
     n.buffer = noiseBuf;
-    var nf = actx.createBiquadFilter();
-    nf.type = "bandpass"; nf.frequency.value = 1100; nf.Q.value = 0.8;
+    var nf = actx.createBiquadFilter(); nf.type = "bandpass"; nf.frequency.value = 2200; nf.Q.value = 0.9;
     var ng = actx.createGain();
     ng.gain.setValueAtTime(0.0001, t0);
-    ng.gain.exponentialRampToValueAtTime(0.12 * vol, t0 + 0.01);
-    ng.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.12);
+    ng.gain.exponentialRampToValueAtTime(0.07 * vol, t0 + 0.008);
+    ng.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.09);
     n.connect(nf); nf.connect(ng); ng.connect(masterGain);
-    n.start(t0, Math.random()); n.stop(t0 + 0.15);
+    n.start(t0, Math.random()); n.stop(t0 + 0.12);
+  }
+
+  function spawnRing(delayMs) {
+    setTimeout(function () {
+      var v = new THREE.Vector3();
+      dogHead.getWorldPosition(v);
+      v.project(camera);
+      var el = document.createElement("div");
+      el.className = "ring";
+      el.style.left = ((v.x * 0.5 + 0.5) * window.innerWidth) + "px";
+      el.style.top = ((-v.y * 0.5 + 0.5) * window.innerHeight) + "px";
+      document.body.appendChild(el);
+      setTimeout(function () { if (el.parentNode) el.parentNode.removeChild(el); }, 800);
+    }, delayMs);
   }
 
   function bark() {
+    var now = clock.elapsedTime;
+    if (now - barkStart < 0.45) return;
     initAudio();
-    barkStart = clock.elapsedTime;
-    spawnFx(Math.random() < 0.5 ? "Hav!" : "Hav hav!", "");
+    barkStart = now;
+    spawnFx(Math.random() < 0.7 ? "Hav!" : "Vuf!", "bark");
+    spawnRing(0);
+    spawnRing(130);
     function go() {
       if (!actx || actx.state !== "running" || !noiseBuf) return;
-      var t0 = actx.currentTime + 0.01;
-      woof(t0, 1);
-      woof(t0 + 0.28, 0.85);
+      woof(actx.currentTime + 0.01, 1);
     }
     if (actx && actx.state === "suspended") {
       actx.resume().then(go).catch(function () {});
@@ -963,12 +1035,13 @@ export default {
   // ---------- Animasyon döngüsü ----------
   var clock = new THREE.Clock();
   var dayP = 0;
+  var lightTarget = new THREE.Vector3(0, 30, 12);
 
   function placeBody(mesh, halo, a) {
     var x = -Math.cos(a) * 90, y = Math.sin(a) * 55, z = -125;
     mesh.position.set(x, y, z);
     halo.position.set(x, y, z);
-    mesh.visible = halo.visible = y > -8;
+    mesh.visible = halo.visible = y > -14;
   }
 
   function animate() {
@@ -1044,27 +1117,24 @@ export default {
     var sS = 1.7 / 9, sE = 6.3 / 9;
     var sunUp = p >= sS && p <= sE;
     var pm = p < sS ? p + 1 : p;
-    var moonUp = pm >= sE && pm <= 1 + sS;
-    var lightA = 0;
-    if (sunUp) {
-      lightA = Math.PI * (p - sS) / (sE - sS);
-      placeBody(sun, sunHalo, lightA);
-      moon.visible = moonHalo.visible = false;
-    } else {
-      sun.visible = sunHalo.visible = false;
-      if (moonUp) {
-        lightA = Math.PI * (pm - sE) / ((1 + sS) - sE);
-        placeBody(moon, moonHalo, lightA);
-      } else {
-        moon.visible = moonHalo.visible = false;
-      }
-    }
+    var aSun = Math.PI * (p - sS) / (sE - sS);
+    var aMoon = Math.PI * (pm - sE) / ((1 + sS) - sE);
+    // güneş ve ay ufkun biraz altına kadar devam eder, böylece ani kaybolmaz
+    var sunVis = p >= sS - 0.03 && p <= sE + 0.03;
+    var moonVis = pm >= sE - 0.03 && pm <= 1 + sS + 0.03;
+    if (sunVis) placeBody(sun, sunHalo, aSun); else sun.visible = sunHalo.visible = false;
+    if (moonVis) placeBody(moon, moonHalo, aMoon); else moon.visible = moonHalo.visible = false;
+    var sunFade = sunVis ? clamp01((sun.position.y + 6) / 16) : 0;
+    var moonFade = moonVis ? clamp01((moon.position.y + 6) / 16) : 0;
+    // ışık yönü sürekli kalır: güneş sağda batar, ışık sağdan devam eder
+    var lightA = sunUp ? aSun : aMoon;
+    var lx = sunUp ? -Math.cos(aSun) * 30 : Math.cos(aMoon) * 30;
     var clearV = (1 - wLevel) * (1 - 0.85 * fogK);
     if (clearV < 0.02) { sun.visible = sunHalo.visible = moon.visible = moonHalo.visible = false; }
-    sunMat.opacity = clearV;
-    sunHaloMat.opacity = clearV * 0.9;
-    moonMat.opacity = clearV;
-    moonHaloMat.opacity = clearV * 0.8;
+    sunMat.opacity = clearV * sunFade;
+    sunHaloMat.opacity = clearV * sunFade * 0.9;
+    moonMat.opacity = clearV * moonFade;
+    moonHaloMat.opacity = clearV * moonFade * 0.8;
 
     // gökkuşağı: yağmurdan sonra, gündüz
     if ((prevWeather === "rain" || prevWeather === "storm") && weather !== prevWeather && sunUp) rbTimer = 40;
@@ -1098,7 +1168,8 @@ export default {
     }
 
     // ışık yönü (okunabilirlik için hafif arkadan)
-    dirLight.position.set(-Math.cos(lightA) * 30, Math.max(Math.sin(lightA) * 30, 6) + 6, 12);
+    lightTarget.set(lx, Math.max(Math.sin(lightA) * 30, 6) + 6, 12);
+    dirLight.position.lerp(lightTarget, 1 - Math.exp(-dt * 4));
 
     // yıldızlar
     starMat.opacity = starsV * clearV * (0.88 + 0.12 * Math.sin(t * 2.3));
@@ -1202,9 +1273,11 @@ export default {
     petLevel += ((petting ? 1 : 0) - petLevel) * (1 - Math.exp(-dt * 6));
     if (petting && t - lastHeart > 0.3) { lastHeart = t; spawnFx("♥", "heart"); }
     var bt = t - barkStart;
-    var barkE = Math.max(bt >= 0 ? Math.exp(-bt * 12) : 0, bt >= 0.28 ? Math.exp(-(bt - 0.28) * 12) : 0);
-    dog.position.y = barkE * 0.06;
-    dogHead.rotation.x = 0.7 + Math.sin(t * 0.9) * 0.03 + 0.3 * barkE - 0.12 * petLevel;
+    var barkE = bt < 0 ? 0 : (bt < 0.05 ? bt / 0.05 : Math.exp(-(bt - 0.05) * 9));
+    dog.position.y = barkE * 0.05;
+    dogHead.position.z = -0.3 - 0.05 * barkE;
+    dogBody.rotation.x = 0.5 + 0.08 * barkE;
+    dogHead.rotation.x = 0.7 + Math.sin(t * 0.9) * 0.03 + 0.38 * barkE - 0.12 * petLevel;
     dogHead.rotation.z = Math.sin(t * 4) * 0.1 * petLevel;
     dogTail.rotation.y = Math.sin(t * (11 + 16 * petLevel)) * (0.55 + 0.3 * petLevel);
 
