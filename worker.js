@@ -10,11 +10,11 @@ export default {
   html, body { margin:0; padding:0; width:100%; height:100%; overflow:hidden; background:#000; }
   canvas { display:block; width:100%; height:100%; }
   #hint {
-    position:fixed; left:50%; bottom:14%; transform:translateX(-50%);
-    color:#fff; font:600 15px/1.2 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-    text-shadow:0 1px 6px rgba(0,0,0,0.7); padding:10px 18px; border-radius:20px;
-    background:rgba(0,0,0,0.25); pointer-events:none; white-space:nowrap;
-    transition:opacity 0.6s ease; animation:pulse 2s ease-in-out infinite; z-index:5;
+    position:fixed; left:50%; bottom:44px; transform:translateX(-50%);
+    color:#fff; font:400 12px/1.2 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    letter-spacing:0.02em; text-shadow:0 1px 4px rgba(0,0,0,0.6);
+    opacity:0.6; pointer-events:none; white-space:nowrap;
+    transition:opacity 0.8s ease; z-index:5;
   }
   #hint.hidden { opacity:0; animation:none; }
   @keyframes pulse { 0%,100% { opacity:0.95; } 50% { opacity:0.45; } }
@@ -31,7 +31,7 @@ export default {
 </head>
 <body>
 <audio id="bgm" loop preload="auto" src="https://mp3tourl.com/audio/1792712233215-a17ca72f-e637-4f60-80e5-f24374ebe5ce.mp3"></audio>
-<div id="hint">Müziği başlatmak için dokun</div>
+<div id="hint" class="hidden">Şarkını duymak için dokun</div>
 <div id="vig"></div>
 <div id="foot">Site bakım molasında — biraz beklemeye ne dersin?</div>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
@@ -45,7 +45,7 @@ export default {
   function rand(a, b) { return a + Math.random() * (b - a); }
   function clamp01(x) { return Math.max(0, Math.min(1, x)); }
   function mat(c) { return new THREE.MeshLambertMaterial({ color: C(c) }); }
-  // Rüzgar: ortak zaman ve şiddet uniform'ları
+  // rüzgar: ortak zaman ve şiddet uniform'ları
   var windTime = { value: 0 }, windAmp = { value: 0.5 };
   function windify(m, key, chunk) {
     m.onBeforeCompile = function (sh) {
@@ -617,13 +617,13 @@ export default {
     kf(0x3a2a5a, 0x4a3866, 0x6a5a9a, 0.45, 0x8a70b0, 0.30, 0.5, 0x4a3a66, 0.25), // alacakaranlık
     kf(0x0a0e24, 0x0c1230, 0x2a3a6a, 0.45, 0x6688cc, 0.30, 1.0, 0x1a2238, 0.12)  // gece
   ];
-  var START_OFFSET = 18; // Sabah aşamasında başla
+  var START_OFFSET = 18; // sabah fazında başla
   var CYCLE = 60;
 
   var cSky = new THREE.Color(), cFog = new THREE.Color(), cAmb = new THREE.Color(), cDir = new THREE.Color(), cCloud = new THREE.Color();
   var grayTop = new THREE.Color(), grayFog = new THREE.Color(), grayAmb = C(0x8a909a), white = new THREE.Color(1, 1, 1);
 
-  // ---------- Hava durumu (gerçek saate bağlı; yeniden yüklemede sıfırlanmaz) ----------
+  // ---------- Hava durumu (gerçek saate bağlı: yeniden yüklemede sıfırlanmaz) ----------
   var weather = "clear";
   var wLevel = 0, stormLevel = 0;
   var flashSeq = [], nextFlash = 0, flashLevel = 0;
@@ -969,7 +969,7 @@ export default {
   var bgm = document.getElementById("bgm");
   var hint = document.getElementById("hint");
   var started = false;
-  if (bgm) bgm.volume = 0.15;
+  bgm.volume = 0.15;
   var evs = ["click", "touchstart", "touchend", "pointerdown", "keydown"];
 
   function onStarted() {
@@ -978,7 +978,8 @@ export default {
     evs.forEach(function (e) { window.removeEventListener(e, tryPlay); });
   }
   function tryPlay() {
-    if (started || !bgm) return;
+    if (started) return;
+    if (!synced) syncOnce();
     var pr = bgm.play();
     if (pr && pr.then) {
       pr.then(onStarted).catch(function () {});
@@ -987,15 +988,39 @@ export default {
     }
   }
   evs.forEach(function (e) { window.addEventListener(e, tryPlay, { passive: true }); });
-  tryPlay();
 
-  // Sekme arka plana gittiğinde müzik ve efektler durur; geri dönünce devam eder.
+  // şarkının konumu gerçek saate bağlı: yenilemede kaldığı yerden devam eder
+  var synced = false;
+  function syncPos() {
+    var dur = bgm.duration;
+    if (isFinite(dur) && dur > 0) {
+      try { bgm.currentTime = (Date.now() / 1000) % dur; } catch (e) {}
+    }
+  }
+  function syncOnce() {
+      if (synced) return;
+    if (bgm.readyState >= 1 && isFinite(bgm.duration)) { synced = true; syncPos(); }
+  }
+  function initialPlay() {
+    syncOnce();
+    var pr = bgm.play();
+    if (pr && pr.then) {
+      pr.then(onStarted).catch(function () { hint.classList.remove("hidden"); });
+    } else {
+      onStarted();
+    }
+  }
+  if (bgm.readyState >= 1) initialPlay();
+  else bgm.addEventListener("loadedmetadata", initialPlay, { once: true });
+  setTimeout(function () { if (!started) hint.classList.remove("hidden"); }, 2500);
+
+  // sekme arka plana gidince müzik ve efektler durur, dönünce devam eder
   function silence() {
-    try { if (bgm) bgm.pause(); } catch (e) {}
+    try { bgm.pause(); } catch (e) {}
     if (actx && actx.state === "running") actx.suspend();
   }
   function unsilence() {
-    if (started && bgm) {
+    if (started) {
       var pr = bgm.play();
       if (pr && pr.catch) pr.catch(function () {});
     }
