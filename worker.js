@@ -44,7 +44,7 @@ export default {
 <audio id="bgm" loop preload="auto" src="https://mp3tourl.com/audio/1792712233215-a17ca72f-e637-4f60-80e5-f24374ebe5ce.mp3"></audio>
 <div id="hint" class="hidden">Şarkını duymak için dokun</div>
 <div id="vig"></div>
-<div id="foot">Site bakım molasında — biraz beklemeye ne dersin?</div>
+<div id="foot">Site bakım molasında siteyi boşverde biraz dinlenmeye ne dersin?</div>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script>
 (function () {
